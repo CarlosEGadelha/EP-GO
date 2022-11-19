@@ -8,13 +8,13 @@ import (
 	"strings"
 )
 
-type client chan<- string // canal de mensagem
+type client chan<- string
 
 var (
 	entering     = make(chan client)
 	leaving      = make(chan client)
 	messages     = make(chan string)
-	lst_messages = make(chan string)
+	users        = make(map[string]client)
 	pvt_messages = make(chan string)
 )
 
@@ -32,6 +32,12 @@ func broadcaster() {
 		case cli := <-leaving:
 			delete(clients, cli)
 			close(cli)
+		case msg := <-pvt_messages:
+			// broadcast de mensagens. Envio para todos
+			arg := strings.Split(msg, " ")
+			println("ENVIADO PARA", arg[3])
+			cliente := users[arg[3]]
+			cliente <- msg
 		}
 	}
 }
@@ -50,6 +56,7 @@ func handleConn(conn net.Conn) {
 	ch <- "vc é " + apelido
 	messages <- apelido + " chegou!"
 	entering <- ch
+	users[apelido] = ch
 
 	input := bufio.NewScanner(conn)
 	for input.Scan() {
@@ -59,12 +66,28 @@ func handleConn(conn net.Conn) {
 		switch cmd {
 		case "/nick":
 			fmt.Println(args)
+			delete(users, apelido)
 			apelido = args[1]
+			users[apelido] = ch
 
 		case "/quit":
-			messages <- apelido + " se foi "
+			fmt.Println(args)
 			leaving <- ch
-			conn.Close()
+			messages <- apelido + " se foi "
+			delete(users, apelido)
+			return
+
+		case "/list":
+			fmt.Println(args)
+			for usuarios, nick := range users {
+				fmt.Println("USUARIO ", usuarios, " nick ", nick)
+			}
+
+		case "/pvt":
+			fmt.Println(args)
+			mensagem := strings.SplitAfter(input.Text(), args[1])
+			pvt_messages <- apelido + " ENVIANDO PARA " + args[1] + " " + mensagem[1]
+
 		default:
 			messages <- apelido + ":" + input.Text()
 		}
