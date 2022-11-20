@@ -16,7 +16,17 @@ var (
 	messages     = make(chan string)
 	users        = make(map[string]client)
 	pvt_messages = make(chan string)
+	bot          = make(chan client)
+	bot_msg      = make(chan string)
 )
+
+func Reverse_text(s string) string {
+	runes := []rune(s)
+	for i, j := 0, len(runes)-1; i < j; i, j = i+1, j-1 {
+		runes[i], runes[j] = runes[j], runes[i]
+	}
+	return string(runes)
+}
 
 func broadcaster() {
 	clients := make(map[client]bool) // todos os clientes conectados
@@ -27,17 +37,21 @@ func broadcaster() {
 			for cli := range clients {
 				cli <- msg
 			}
+
 		case cli := <-entering:
 			clients[cli] = true
+
 		case cli := <-leaving:
 			delete(clients, cli)
 			close(cli)
+
 		case msg := <-pvt_messages:
 			// broadcast de mensagens. Envio para todos
 			arg := strings.Split(msg, " ")
 			println("ENVIADO PARA", arg[3])
 			cliente := users[arg[3]]
 			cliente <- msg
+
 		}
 	}
 }
@@ -50,7 +64,10 @@ func clientWriter(conn net.Conn, ch <-chan string) {
 
 func handleConn(conn net.Conn) {
 	ch := make(chan string)
+	bot := make(chan string)
 	go clientWriter(conn, ch)
+	go clientWriter(conn, bot)
+	users["bot"] = bot
 
 	apelido := conn.RemoteAddr().String()
 	ch <- "vc é " + apelido
@@ -65,10 +82,14 @@ func handleConn(conn net.Conn) {
 
 		switch cmd {
 		case "/nick":
-			fmt.Println(args)
-			delete(users, apelido)
-			apelido = args[1]
-			users[apelido] = ch
+			if input.Text() == "/nick" {
+				messages <- "NICK INVÁLIDO"
+			} else {
+				fmt.Println(args)
+				delete(users, apelido)
+				apelido = args[1]
+				users[apelido] = ch
+			}
 
 		case "/quit":
 			fmt.Println(args)
@@ -81,12 +102,18 @@ func handleConn(conn net.Conn) {
 			fmt.Println(args)
 			for usuarios, nick := range users {
 				fmt.Println("USUARIO ", usuarios, " nick ", nick)
+				pvt_messages <- "Servidor " + " para " + apelido + " Usuários online: " + usuarios
 			}
 
 		case "/pvt":
 			fmt.Println(args)
 			mensagem := strings.SplitAfter(input.Text(), args[1])
-			pvt_messages <- apelido + " ENVIANDO PARA " + args[1] + " " + mensagem[1]
+			pvt_messages <- apelido + " enviando para " + args[1] + " " + mensagem[1]
+
+		case "/bot":
+			fmt.Println(args)
+			mensagem := strings.SplitAfter(input.Text(), "/bot")
+			pvt_messages <- "BOT" + " enviando para " + apelido + " : " + Reverse_text(mensagem[1])
 
 		default:
 			messages <- apelido + ":" + input.Text()
